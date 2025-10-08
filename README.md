@@ -1,24 +1,82 @@
-# Data Science Template
+# Car Price Prediction
 
-This sample repo contains the recommended structure for a Python data science project. For more information on data science in VS Code, see the [Data Science Overview](https://code.visualstudio.com/docs/datascience/overview) in our docs. In this sample, we use the `pandas` and `matplotlib` libraries to perform data analysis and visualize sample data and the `pytest` library to perform tests.
+This project predicts the price of a used car based on its features using machine learning. It includes data analysis, model training (with multiple algorithms), and a web app for interactive price prediction.
 
-For a more in-depth tutorial, see our [data science tutorial](https://code.visualstudio.com/docs/datascience/data-science-tutorial).
+## Features
 
-The code in this repo aims to follow Python style guidelines as outlined in [PEP 8](https://peps.python.org/pep-0008/).
+- Data cleaning and preprocessing
+- Model training with XGBoost, Random Forest, and Linear Regression
+- Label encoding for categorical features
+- Model evaluation (RMSE, R²)
+- Streamlit web app for user-friendly predictions
+- Example notebooks for analysis and experimentation
 
-## Running the Sample
+## Project Structure
 
-To successfully run this example, we recommend the following VS Code extensions:
-- [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
-- [Python Debugger](https://marketplace.visualstudio.com/items?itemName=ms-python.debugpy)
-- [Pylance](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-pylance) 
+```
+car_price_prediction/
+│
+├── car_price_app.py           # Streamlit web app for predictions
+├── car_price_prediction.py    # ML training and evaluation script
+├── carprice.ipynb             # Jupyter notebook for EDA and modeling
+├── carPricepredict.ipynb      # Additional notebook (experiments)
+├── car_price_xgb_model.pkl    # Trained XGBoost model
+├── label_encoders.pkl         # Saved label encoders for categorical features
+├── processed_car_dataset.csv  # Cleaned and processed dataset
+├── requirements.txt           # Python dependencies
+├── data/
+│   └── dataset.csv            # Raw car dataset
+└── README.md                  # Project documentation
+```
 
-- Open the template folder in VS Code (**File** > **Open Folder...**)
-- Create a Python virtual environment using the **Python: Create Environment** command found in the Command Palette (**View > Command Palette**). Ensure you install dependencies found in the `requirements.txt` file
-- Ensure your newly created environment is selected using the **Python: Select Interpreter** command found in the Command Palette
-- Run `calculations.py` using the Play Button in the top right corner or by selecting **Python > Python File in Terminal** from the context menu or Command Palette
-- Run `revenue_visual.py` using the Play Button in the top right corner or by selecting **Python > Python File in Terminal** from the context menu or Command Palette to generate the bar graph visual
-- To test the Python code, install `dev-requirements.txt` into your virtual environment. 
-- Navigate to the Test Panel to configure your Python test or by triggering the **Python: Configure Tests** command from the Command Palette
-- Run tests in the Test Panel or by clicking the Play Button next to the individual tests in the `test_calculations.py` file
+## Getting Started
 
+### 1. Install Dependencies & Run Project
+
+Create a virtual environment and install requirements:
+
+```sh
+python -m venv env
+.\env\Scripts\activate  # (check for folder)
+pip install -r requirements.txt
+streamlit run car_price_app.py
+```
+
+### 2. Prepare Data
+
+- Place your raw dataset as `data/dataset.csv`.
+- Run the notebook [`carprice.ipynb`](carprice.ipynb) to clean data, encode features, and train models.
+- This will generate `processed_car_dataset.csv`, `car_price_xgb_model.pkl`, and `label_encoders.pkl`.
+
+### 3. Train & Evaluate Models
+
+- Use [`car_price_prediction.py`](car_price_prediction.py) to experiment with different ML algorithms (Random Forest, Linear Regression, etc.).
+- Evaluate model performance using RMSE and R² metrics.
+
+### 4. Run the Web App
+
+Start the Streamlit app to predict car prices interactively:
+
+```sh
+streamlit run car_price_app.py
+```
+
+Enter car details in the UI to get an instant price estimate.
+
+## Example Usage
+
+- Try the sample prediction in [`carprice.ipynb`](carprice.ipynb) or use the web app.
+- The app supports features like brand, model, year, mileage, engine size, fuel type, transmission, condition, color, body type, etc.
+
+## Requirements
+
+- Python 3.8+
+- See [`requirements.txt`](requirements.txt) for all dependencies.
+
+## Credits
+
+- Built with [scikit-learn](https://scikit-learn.org/), [xgboost](https://xgboost.readthedocs.io/), [pandas](https://pandas.pydata.org/), and [Streamlit](https://streamlit.io/).
+
+---
+
+**Note:** For best results, use a dataset with similar columns as in `data/dataset.csv`. You can further tune models or add new
