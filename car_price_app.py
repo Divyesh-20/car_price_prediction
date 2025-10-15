@@ -1,171 +1,237 @@
+# car_price_dashboard_pro.py
 import streamlit as st
 import pandas as pd
 import joblib
-from sklearn.preprocessing import LabelEncoder
+import numpy as np
+from datetime import datetime
+import plotly.express as px
+import time
 
 # -----------------------------
-# 1️⃣ Load dataset, model & encoders
+# 1️⃣ Load Data & Model
 # -----------------------------
-df_model = pd.read_csv("processed_car_dataset.csv")
-features = ['brand', 'model', 'year', 'age', 'mileage', 'mileage_per_year', 
-            'engine_size', 'fuel_type', 'transmission', 'condition', 
-            'owner_count', 'color', 'body_type']
-target = 'price_local'
+@st.cache_resource
+def load_data():
+    df = pd.read_csv("data/dataset.csv")
+    for col in ['brand', 'model', 'fuel_type', 'transmission', 'condition', 'color', 'body_type']:
+        df[col] = df[col].astype(str).str.strip().str.title()
+    model = joblib.load("car_price_xgb_model.pkl")
+    encoders = joblib.load("label_encoders.pkl")
+    brand_model_map = df.groupby('brand')['model'].apply(lambda x: sorted(x.unique())).to_dict()
+    return df, model, encoders, brand_model_map
 
-model = joblib.load("car_price_xgb_model.pkl")
-encoders = joblib.load("label_encoders.pkl")
-
+df, model, encoders, brand_model_map = load_data()
 cat_cols = ['brand', 'model', 'fuel_type', 'transmission', 'condition', 'color', 'body_type']
-
-# Decode categorical for UI
-df_ui = df_model.copy()
-for col in cat_cols:
-    df_ui[col] = encoders[col].inverse_transform(df_ui[col])
+features = ['brand', 'model', 'fuel_type', 'transmission', 'condition',
+            'color', 'body_type', 'year', 'age', 'mileage',
+            'mileage_per_year', 'engine_size', 'owner_count']
 
 # -----------------------------
-# 2️⃣ Streamlit UI
+# 2️⃣ Page Config + Theme CSS
 # -----------------------------
-st.set_page_config(page_title="Car Price Predictor", layout="wide")
-st.markdown("<h1 style='text-align: center; color: darkblue;'>🚗 Car Price Prediction</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>Enter car details below to get an instant price estimate.</p>", unsafe_allow_html=True)
-st.markdown("---")
+st.set_page_config(page_title="🚗 Car Price Dashboard", layout="wide")
 
-# Columns layout
-col1, col2 = st.columns(2)
+st.markdown("""
+<style>
+/* ----------------- Global ----------------- */
+.stApp { background: radial-gradient(circle at top left, #1a0033, #0d001a); color: #EAEAEA; }
+h1 { color: #CFA0FF; text-shadow: 2px 2px 8px #00000088; text-align: center; }
+h3, h4 { color: #B38BFA; text-shadow: 1px 1px 4px #00000066; }
 
-with col1:
-    selected_brand = st.selectbox("Select Brand", sorted(df_ui['brand'].unique()))
-    available_models = df_ui[df_ui['brand'] == selected_brand]['model'].unique()
-    selected_model = st.selectbox("Select Model", sorted(available_models))
-    fuel_type = st.selectbox("Fuel Type", sorted(df_ui['fuel_type'].unique()))
-    transmission = st.selectbox("Transmission", sorted(df_ui['transmission'].unique()))
-    condition = st.selectbox("Condition", sorted(df_ui['condition'].unique()))
-    color = st.selectbox("Color", sorted(df_ui['color'].unique()))
-    body_type = st.selectbox("Body Type", sorted(df_ui['body_type'].unique()))
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    backdrop-filter: blur(8px);
+    background: rgba(25, 0, 51, 0.7);
+    border-right: 2px solid #5D3FD3;
+    color: #fff;
+}
 
-with col2:
-    year = st.number_input("Year", min_value=1980, max_value=2025, value=2018)
-    age = st.number_input("Age", min_value=0, max_value=30, value=5)
-    mileage = st.number_input("Mileage (km)", min_value=0, max_value=1000000, value=50000)
-    mileage_per_year = st.number_input("Mileage per year", min_value=0, max_value=100000, value=10000)
-    engine_size = st.number_input("Engine Size (L)", min_value=0.5, max_value=8.0, value=2.0)
-    owner_count = st.number_input("Owner Count", min_value=0, max_value=5, value=1)
+/* Tabs */
+div[data-baseweb="tab-list"] button {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #CFA0FF !important;
+    border-radius: 12px !important;
+    margin-right: 6px !important;
+    font-weight: 600;
+}
+div[data-baseweb="tab-list"] button:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+    color: #fff !important;
+}
+
+/* Metrics */
+[data-testid="stMetricValue"] { color: #B38BFA !important; font-weight: bold; font-size: 22px; text-shadow: 1px 1px 4px #00000066; }
+
+/* Buttons */
+button[kind="primary"] {
+    background: linear-gradient(90deg, #5D3FD3, #9D4EDD);
+    color: white; border-radius: 10px; height: 3em; width: 100%; font-weight: 600;
+    transition: 0.3s; font-size: 16px;
+}
+button[kind="primary"]:hover { background: linear-gradient(90deg, #9D4EDD, #5D3FD3); transform: scale(1.02); }
+
+/* Inputs */
+.stSelectbox, .stNumberInput { background-color: #160030 !important; border-radius: 8px !important; }
+
+/* Plot background */
+.js-plotly-plot .plotly .main-svg { background: transparent !important; }
+
+/* Divider */
+hr { border-color: #5D3FD3; }
+
+/* Popup prediction */
+.popup-card {
+    position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(40,0,80,0.95); border: 2px solid #9D4EDD;
+    padding: 25px 45px; border-radius: 15px; text-align: center;
+    box-shadow: 0px 0px 25px #5D3FD3AA; z-index: 9999; animation: fadeIn 0.6s ease-in-out;
+}
+.popup-price { color: #CFA0FF; font-size: 2rem; font-weight: 700; margin-bottom: 10px; }
+.popup-info { color:#aaa; font-size:14px; }
+@keyframes fadeIn { from {opacity:0; transform:translate(-50%,-45%);} to {opacity:1; transform:translate(-50%,-50%);} }
+</style>
+""", unsafe_allow_html=True)
 
 # -----------------------------
-# 3️⃣ Prediction function
+# 3️⃣ Header
 # -----------------------------
-def predict_car_price(car_details: dict, conversion_rate=83):
-    """
-    Predicts car price from details dict, converts to INR, and formats for display.
-    Returns None if an unknown categorical value is encountered.
-    """
-    df_input = pd.DataFrame([car_details])
-
-    # Encode categorical columns
-    for col in cat_cols:
-        if df_input[col].iloc[0] not in encoders[col].classes_:
-            st.warning(f"Unknown value '{df_input[col].iloc[0]}' for {col}.")
-            return None
-        df_input[col] = encoders[col].transform(df_input[col].values)
-
-    # Predict price in USD
-    pred_price_usd = model.predict(df_input)[0]
-
-    # Convert to INR
-    pred_price_inr = pred_price_usd * conversion_rate
-
-    # Round and format price
-    formatted_price = round(pred_price_inr, 0)
-
-    return formatted_price
-
+st.markdown("<h1>🚗 Car Price Analytics Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("<hr>", unsafe_allow_html=True)
 
 # -----------------------------
-# 4️⃣ Predict button (Enhanced UI)
+# 4️⃣ Sidebar Filters
 # -----------------------------
-if st.button("💰 Predict Price"):
-    car_details = {
-        'brand': selected_brand,
-        'model': selected_model,
-        'fuel_type': fuel_type,
-        'transmission': transmission,
-        'condition': condition,
-        'color': color,
-        'body_type': body_type,
-        'year': year,
-        'age': age,
-        'mileage': mileage,
-        'mileage_per_year': mileage_per_year,
-        'engine_size': engine_size,
-        'owner_count': owner_count
-    }
-    price = predict_car_price(car_details)
-    
-    if price is not None:
-        st.markdown("---")
+st.sidebar.header("⚙️ Filter Your Selection")
+selected_brand = st.sidebar.selectbox("Select Brand", sorted(brand_model_map.keys()))
+available_models = brand_model_map[selected_brand]
+selected_model = st.sidebar.selectbox("Select Model", available_models)
 
-        # Dynamic price color based on range
-        if price < 500000:
-            price_color = "#16a34a"  # green
-        elif price < 1500000:
-            price_color = "#f59e0b"  # orange
-        else:
-            price_color = "#dc2626"  # red
+available_fuels = sorted(df[(df['brand']==selected_brand) & (df['model']==selected_model)]['fuel_type'].unique())
+selected_fuel = st.sidebar.selectbox("Fuel Type", available_fuels)
 
-        # Gradient header with dynamic color
+available_trans = sorted(df[(df['brand']==selected_brand) & 
+                            (df['model']==selected_model) & 
+                            (df['fuel_type']==selected_fuel)]['transmission'].unique())
+
+selected_transmission = st.sidebar.selectbox("Transmission", available_trans)
+
+year_range = st.sidebar.slider("Year Range", int(df['year'].min()), int(df['year'].max()), (2010, 2023))
+
+df_filtered = df[
+    (df['brand']==selected_brand) &
+    (df['model']==selected_model) &
+    (df['fuel_type']==selected_fuel) &
+    (df['transmission']==selected_transmission) &
+    (df['year'] >= year_range[0]) & (df['year'] <= year_range[1])
+]
+
+# -----------------------------
+# 5️⃣ Tabs
+# -----------------------------
+tab1, tab2, tab3 = st.tabs(["📊 Market Overview", "📈 Model Comparison", "💰 Price Prediction"])
+
+# ---- Tab 1: Market Overview ----
+with tab1:
+    st.markdown(f"### Market Overview: **{selected_brand} {selected_model}**")
+    col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+    col1.metric("Total Cars", len(df_filtered))
+    col2.metric("Min Price (₹)", int(df_filtered['price_local'].min() if not df_filtered.empty else 0))
+    col3.metric("Max Price (₹)", int(df_filtered['price_local'].max() if not df_filtered.empty else 0))
+    col4.metric("Avg Price (₹)", int(df_filtered['price_local'].mean() if not df_filtered.empty else 0))
+    col5.metric("Avg Mileage (km)", int(df_filtered['mileage'].mean() if not df_filtered.empty else 0))
+
+    st.markdown("### 💵 Price Distribution")
+    fig_price_dist = px.histogram(
+        df_filtered, x='price_local', nbins=25, title='Distribution of Prices',
+        color_discrete_sequence=px.colors.sequential.Purples
+    )
+    fig_price_dist.update_traces(marker_line_width=1, marker_line_color='rgba(0,0,0,1)')
+    fig_price_dist.update_layout(paper_bgcolor='rgba(0,0,0,0)',
+                                 plot_bgcolor='rgba(0,0,0,0)',
+                                 font=dict(color='#CFA0FF'))
+    fig_price_dist.update_traces(hovertemplate='₹%{x:,.0f}<extra></extra>')
+    st.plotly_chart(fig_price_dist, use_container_width=True, config={'displayModeBar': False})
+
+    st.markdown("### 📆 Historical Price Trend")
+    if not df_filtered.empty:
+        df_trend = df_filtered.groupby('year')['price_local'].mean().reset_index()
+        fig_trend = px.line(df_trend, x='year', y='price_local', markers=True,
+                            title='Average Price by Year',
+                            color_discrete_sequence=['#A06CD5'])
+        fig_trend.update_traces(line=dict(width=4))
+        fig_trend.update_layout(paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                font=dict(color='#CFA0FF'))
+        fig_trend.update_traces(hovertemplate='Year %{x}: ₹%{y:,.0f}<extra></extra>')
+        st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': False})
+
+# ---- Tab 2: Model Comparison ----
+with tab2:
+    st.markdown(f"### 💹 {selected_brand} Model Price Comparison")
+    df_compare = df[df['brand']==selected_brand].groupby('model')['price_local'].mean().reset_index()
+    fig_compare = px.bar(
+        df_compare, x='model', y='price_local', text='price_local', color='model',
+        color_discrete_sequence=px.colors.qualitative.Pastel
+    )
+    fig_compare.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside',
+                              marker_line_width=1, marker_line_color='rgba(255,255,255,0.3)')
+    fig_compare.update_layout(uniformtext_minsize=8, uniformtext_mode='hide',
+                              paper_bgcolor='rgba(0,0,0,0)',
+                              plot_bgcolor='rgba(0,0,0,0)',
+                              font=dict(color='#CFA0FF'))
+    fig_compare.update_traces(hovertemplate='Model %{x}: ₹%{y:,.0f}<extra></extra>')
+    st.plotly_chart(fig_compare, use_container_width=True, config={'displayModeBar': False})
+
+# ---- Tab 3: Prediction ----
+with tab3:
+    st.markdown("### 🎯 Predict Your Car Price")
+    with st.form("car_input_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            condition = st.selectbox("Condition 🏷️", sorted(encoders['condition'].classes_))
+            color = st.selectbox("Color 🎨", sorted(encoders['color'].classes_))
+            body_type = st.selectbox("Body Type 🚙", sorted(encoders['body_type'].classes_))
+        with col2:
+            year = st.number_input("Year of Manufacture 📅", 1990, datetime.now().year, 2016)
+            age = datetime.now().year - year
+            st.metric("Calculated Age", f"{age} years")
+            mileage = st.number_input("Usage (km) 🛣️", 0, 1000000, 50000)
+            mileage_per_year = mileage / (age + 1)
+            st.metric("Usage per Year", f"{int(mileage_per_year)} km/year")
+            engine_size = st.number_input("Engine Size (L) 🏎️", 0.0, 10.0, 1.6, 0.1)
+            owner_count = st.number_input("Previous Owners 👤", 0, 10, 1)
+        submitted = st.form_submit_button("💰 Predict Price")
+
+    if submitted:
+        car_details = {
+            'brand': selected_brand,
+            'model': selected_model,
+            'fuel_type': selected_fuel,
+            'transmission': selected_transmission,
+            'condition': condition,
+            'color': color,
+            'body_type': body_type,
+            'year': year,
+            'age': age,
+            'mileage': mileage,
+            'mileage_per_year': mileage_per_year,
+            'engine_size': engine_size,
+            'owner_count': owner_count
+        }
+        for col in cat_cols:
+            car_details[col] = encoders[col].transform([str(car_details[col]).strip().title()])[0]
+        df_input = pd.DataFrame([car_details])[features]
+        predicted_price = model.predict(df_input)[0]
+
+        # Popup style prediction
         st.markdown(f"""
-            <h2 style='text-align: center; color: {price_color}; 
-                       font-weight: bold; font-size: 42px;'>
-                🚗 Estimated Price: ₹{price:,}
-            </h2>
+        <div class="popup-card">
+            <div class="popup-price">💰 Estimated Price: ₹ {round(predicted_price):,}</div>
+            <div class="popup-info">Based on real-world market analysis 🚀</div>
+        </div>
         """, unsafe_allow_html=True)
 
-        # Display brand logo (optional: you can map brand to image URLs)
-#         brand_logos = {
-#     'Audi': 'https://upload.wikimedia.org/wikipedia/commons/6/6f/Audi_logo_2016.png',
-#     'BMW': 'https://upload.wikimedia.org/wikipedia/commons/4/44/BMW.svg',
-#     'Mercedes': 'https://upload.wikimedia.org/wikipedia/commons/9/90/Mercedes-Logo.svg',
-#     'Toyota': 'https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_logo.png',
-#     'Honda': 'https://upload.wikimedia.org/wikipedia/commons/7/7b/Honda-logo.svg',
-#     'Hyundai': 'https://upload.wikimedia.org/wikipedia/commons/3/3e/Hyundai_Motor_Company_logo.svg',
-#     'Ford': 'https://upload.wikimedia.org/wikipedia/commons/3/3e/Ford_logo_flat.svg',
-#     'Volkswagen': 'https://upload.wikimedia.org/wikipedia/commons/7/7f/Volkswagen_logo_2019.png',
-#     'Skoda': 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Škoda_logo.svg',
-#     'Nissan': 'https://upload.wikimedia.org/wikipedia/commons/1/12/Nissan_logo.svg'
-#     # Continue for other brands...
-# }
-
-
-        logo_url = brand_logos.get(selected_brand, None)
-        if logo_url:
-            st.markdown(f"<div style='text-align:center;'><img src='{logo_url}' width='120'/></div>", unsafe_allow_html=True)
-
-        # Car info card with color-coded icons and glow effect
-        st.markdown(
-            f"""
-            <div style='background-color:#000000; padding:25px; border-radius:15px; 
-                        box-shadow: 0 8px 20px rgba(0,0,0,0.25); transition: all 0.3s ease-in-out;
-                        hover: transform: scale(1.02);'>
-                <h3 style='text-align:center; color:#1E3A8A;'>Car Details 📝</h3>
-                <div style='display: flex; justify-content: space-between; flex-wrap: wrap;'>
-                    <div style='flex: 45%; min-width: 200px;'>
-                        <p>🚘 <b>Brand:</b> {selected_brand}</p>
-                        <p>🏷️ <b>Model:</b> {selected_model}</p>
-                        <p>⛽ <b>Fuel Type:</b> {fuel_type}</p>
-                        <p>⚙️ <b>Transmission:</b> {transmission}</p>
-                        <p>🟢 <b>Condition:</b> {condition}</p>
-                        <p>🎨 <b>Color:</b> {color}</p>
-                    </div>
-                    <div style='flex: 45%; min-width: 200px;'>
-                        <p>🏛️ <b>Body Type:</b> {body_type}</p>
-                        <p>📅 <b>Year:</b> {year}</p>
-                        <p>⏳ <b>Age:</b> {age} years</p>
-                        <p>🛣️ <b>Mileage:</b> {mileage} km</p>
-                        <p>📈 <b>Mileage/Year:</b> {mileage_per_year}</p>
-                        <p>⚡ <b>Engine Size:</b> {engine_size} L</p>
-                        <p>👤 <b>Owner Count:</b> {owner_count}</p>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True
-        )
+# -----------------------------
+# Footer
+# -----------------------------
+st.markdown("<hr>", unsafe_allow_html=True)
